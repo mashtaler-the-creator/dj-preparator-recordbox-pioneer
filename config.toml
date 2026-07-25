@@ -8,13 +8,13 @@ paths = [
 
 [staging]
 # The tool writes ONLY inside this folder (output files + .cdjprep/ state).
-path = "~/Downloads/музыка для сетов"
+path = "/Users/vladislav.mashtaler/Downloads/output"
 # "release_folders": one folder per source release folder (transliterated), loose files go to "Singles".
 # "flat": everything in the staging root.
 layout = "release_folders"
-# Fields: {bpm} {track} {artist} {title} {album} {year}. Track renders as zero-padded "NN",
-# {bpm} as a rounded integer (empty if detection failed).
-filename_template = "{bpm} {track}. {artist} - {title}"
+# Fields: {track} {artist} {title} {album} {year} (and {bpm} if analysis.bpm is on).
+# Track renders as zero-padded "NN".
+filename_template = "{track}. {artist} - {title}"
 
 [target]
 container = "aiff"            # D1: AIFF carries full ID3; WAV RIFF-INFO is unreliable in rekordbox
@@ -24,7 +24,8 @@ resample_filter_size = 256    # D5: swr high-quality (local ffmpeg has no soxr)
 volume_gb = 16.0              # report warns if staging exceeds this USB size (decimal GB)
 
 [analysis]
-bpm = true                    # D14: aubio + octave-error correction
+bpm = false                   # off: aubio misdetects too often on this material; rekordbox
+                              # analyzes BPM itself anyway (D14 kept in code, disabled by default)
 bpm_min_expected = 100.0      # detections below this are doubled (160-180 BPM library)
 bpm_max_expected = 220.0      # detections above this are halved
 key = true                    # keyfinder-cli -> TKEY (rekordbox reads TKEY)

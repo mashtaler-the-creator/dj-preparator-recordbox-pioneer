@@ -273,10 +273,14 @@ def main():
     run_tool(cfg=cfg2)
     report3 = json.loads((STAGING / ".cdjprep" / "report.json").read_text())
     new_outputs = {r["output"] for r in report3["records"]
-                   if r["action"] in ("copy", "convert") and r.get("output")}
+                   if r["action"] in ("copy", "convert", "skip") and r.get("output")}
+    acts3 = [r["action"] for r in report3["records"] if r["action"] != "reject"]
+    check("template-only change used rename fast-path (no re-encode)",
+          all(a == "skip" for a in acts3), "all skip (renamed)", str(set(acts3)))
     missing_new = [o for o in new_outputs if not Path(o).exists()]
-    check("template change: new-name outputs exist", not missing_new,
-          "all present", missing_new or "all present")
+    check("template change: new-name outputs exist", new_outputs and not missing_new,
+          f"~{len(old_outputs)} outputs present under new names",
+          f"{len(new_outputs)} planned, missing: {missing_new or 'none'}")
     leftovers = [o for o in old_outputs - new_outputs if Path(o).exists()]
     check("template change: stale old-name outputs removed", not leftovers,
           "none left", leftovers or "none left")

@@ -115,6 +115,14 @@ def config_signature(cfg):
     return hashlib.sha256(sig.encode()).hexdigest()[:16]
 
 
+def convert_signature(cfg):
+    """Hash of settings that change the audio CONTENT of outputs. When only naming
+    changed (config_signature differs but this matches), outputs are renamed in place
+    instead of being re-encoded."""
+    t = {k: v for k, v in cfg["target"].items() if k != "volume_gb"}
+    return hashlib.sha256(json.dumps(t, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
 # ---------------------------------------------------------------- text utils
 
 def transliterate(s):
@@ -561,7 +569,9 @@ def plan_outputs(cfg, records, src_roots):
         if rec.get("output_rel"):
             used[rec["output_rel"]] = rec["source"]
     for rec in records:
-        if rec["action"] not in ("copy", "convert") or rec.get("output_rel"):
+        # "skip" records normally keep their stored name; rename candidates arrive
+        # with output_rel cleared and must be re-planned like everything else
+        if rec["action"] not in ("copy", "convert", "skip") or rec.get("output_rel"):
             continue
         src = Path(rec["source"])
         ext = src.suffix.lower() if rec["action"] == "copy" else ".aiff"
@@ -976,22 +986,31 @@ def main():
         f"({n_part} .part skipped), {jobs} workers"
         f"{', DRY RUN' if args.dry_run else ''}")
 
+    csig = convert_signature(cfg)
     t0 = time.time()
     records, todo, stale = [], [], {}
     for p in files:
         key = str(p.resolve())
         st = p.stat()
         m = manifest.get(key)
-        if (m and not args.force and m.get("size") == st.st_size
-                and m.get("mtime_ns") == st.st_mtime_ns and m.get("config_sig") == sig
-                and (m["record"]["action"] == "reject"
-                     or (m["record"].get("output") and Path(m["record"]["output"]).exists()))):
-            rec = m["record"]
+        rec = m.get("record") if m else None
+        fresh = (m and not args.force and m.get("size") == st.st_size
+                 and m.get("mtime_ns") == st.st_mtime_ns)
+        out_ok = bool(rec and rec.get("output") and Path(rec["output"]).exists())
+        if fresh and m.get("config_sig") == sig and (rec["action"] == "reject" or out_ok):
             rec["action"] = "skip" if rec["action"] in ("copy", "convert") else rec["action"]
             records.append(rec)
+        elif (fresh and out_ok and m.get("convert_sig") == csig
+              and rec["action"] in ("copy", "convert", "skip")):
+            # audio-affecting settings unchanged — only naming/layout changed:
+            # rename the existing output instead of re-encoding it
+            rec["action"] = "skip"
+            rec["_old_output"] = rec["output"]
+            rec["output"] = rec["output_rel"] = None
+            records.append(rec)
         else:
-            if m and m.get("record", {}).get("output"):
-                stale[key] = m["record"]["output"]  # reprocessed under a possibly new name
+            if rec and rec.get("output"):
+                stale[key] = rec["output"]  # reprocessed under a possibly new name
             todo.append(p)
 
     src_roots = cfg["sources"]["paths"]
@@ -1007,12 +1026,32 @@ def main():
         for r in sorted(records, key=lambda x: x["source"]):
             tgt = f" -> {r['output_rel']}" if r.get("output_rel") else ""
             log(f"  {r['action'].upper():8} {r['source']}{tgt}")
+            if r.get("_old_output") and r.get("output") and r["_old_output"] != r["output"]:
+                log("           note: existing output will be RENAMED (naming change only)")
             for reason in r["reasons"]:
                 log(f"           reason: {reason}")
         print(human_summary(cfg, records, dup_groups, True, time.time() - t0))
         return 0
 
     staging.mkdir(parents=True, exist_ok=True)
+    renamed = 0
+    for rec in records:
+        old = rec.pop("_old_output", None)
+        if not old or rec["action"] != "skip" or not rec.get("output") or old == rec["output"]:
+            continue
+        src_p, dst_p = Path(old), Path(rec["output"])
+        try:
+            dst_p.parent.mkdir(parents=True, exist_ok=True)
+            if src_p.exists() and not dst_p.exists():
+                shutil.move(str(src_p), str(dst_p))
+                renamed += 1
+                if (src_p.parent.resolve() != staging.resolve() and src_p.parent.exists()
+                        and not any(src_p.parent.iterdir())):
+                    src_p.parent.rmdir()
+        except OSError as e:
+            rec["warnings"].append(f"rename failed: {e}")
+    if renamed:
+        log(f"renamed {renamed} existing outputs to the new naming scheme (no re-encoding)")
     tmpdir = state_dir / "tmp"
     tmpdir.mkdir(parents=True, exist_ok=True)
     global _done_count
@@ -1050,12 +1089,16 @@ def main():
         except OSError:
             pass
 
-    for rec in new_recs:
+    for rec in records:
         rec.pop("_art", None)
+        rec.pop("_old_output", None)
         p = Path(rec["source"])
+        if not p.exists():
+            continue
         st = p.stat()
         manifest[str(p.resolve())] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns,
-                                      "config_sig": sig, "done_at": time.time(),
+                                      "config_sig": sig, "convert_sig": csig,
+                                      "done_at": time.time(),
                                       "tool_version": TOOL_VERSION, "record": rec}
     state_dir.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
