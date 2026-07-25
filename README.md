@@ -59,7 +59,7 @@ Pioneer-базу не пишет, флешку не трогает — это д
   (DnB version families are never called duplicates), "(Original Mix)" treated as neutral.
 
 ### Output & reporting
-- Configurable filename template (`{track}. {artist} - {title}`), release-folder or flat layout.
+- Configurable filename template (`{bpm} {track}. {artist} - {title}`, BPM prefix by default), release-folder or flat layout.
 - All paths FAT32-safe ASCII, illegal characters stripped, path length checked against the
   256-char rekordbox/PRO DJ LINK limit, nesting kept far below the CDJ's 8-level cap.
 - `report.json` (machine-readable, fate of every source file) + human summary: counts,
@@ -129,7 +129,7 @@ Pioneer-базу не пишет, флешку не трогает — это д
   слияние** (семьи версий в DnB никогда не объявляются дублями), «(Original Mix)» нейтрален.
 
 ### Выход и отчётность
-- Настраиваемый шаблон имён (`{track}. {artist} - {title}`), раскладка по папкам релизов или плоская.
+- Настраиваемый шаблон имён (`{bpm} {track}. {artist} - {title}`, BPM prefix by default), раскладка по папкам релизов или плоская.
 - Все пути — ASCII, безопасные для FAT32, нелегальные символы вырезаны, длина пути проверяется
   против лимита 256 символов rekordbox/PRO DJ LINK, вложенность сильно ниже лимита CDJ в 8 уровней.
 - `report.json` (машиночитаемый, судьба каждого исходника) + человеческая сводка: счётчики,

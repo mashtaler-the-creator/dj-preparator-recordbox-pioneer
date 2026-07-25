@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tomllib
@@ -538,14 +539,17 @@ def write_tags(cfg, rec, tmpdir):
 def build_output_name(cfg, rec):
     tg = rec["tags_final"]
     tpl = cfg["staging"]["filename_template"]
+    an = rec.get("analysis", {})
     fields = {
         "artist": tg["artist"] or "Unknown Artist",
         "title": tg["title"] or Path(rec["source"]).stem,
         "album": tg["album"], "year": tg["year"],
         "track": f"{tg['track']:02d}" if tg["track"] is not None else "",
+        "bpm": str(round(an["bpm"])) if an.get("bpm") else "",
     }
     name = tpl.format_map(fields)
-    name = re.sub(r"^[\s.\-]+", "", name)          # dangling separators when track is empty
+    name = re.sub(r"\s+\.\s+", " ", name)          # "{bpm} {track}." with empty track
+    name = re.sub(r"^[\s.\-]+", "", name)          # dangling separators when bpm/track empty
     name = re.sub(r"\(\s*\)|\[\s*\]", "", name)
     return sanitize_component(transliterate(name))
 
@@ -620,23 +624,23 @@ def convert_file(cfg, rec):
 
 # ---------------------------------------------------------------- analysis (D7-D9, D14)
 
-def detect_bpm(cfg, rec, tmpdir):
+def detect_bpm(cfg, src):
+    """BPM of any readable audio file (runs on SOURCES during audit so the value is
+    available for {bpm} in the filename template before outputs are planned)."""
     lo, hi = cfg["analysis"]["bpm_min_expected"], cfg["analysis"]["bpm_max_expected"]
 
     def aubio_on(path):
         r = run([cfg["binaries"]["aubio"], "tempo", str(path)], timeout=300)
         m = re.search(r"([\d.]+)\s*bpm", r.stdout.decode("utf-8", "replace"))
         return float(m.group(1)) if m else None
-    bpm = aubio_on(rec["output"])
+    bpm = aubio_on(src)
     if bpm is None:  # fallback: decode to wav first (aubio may lack the codec)
-        tmp = tmpdir / f"bpm_{threading.get_ident()}.wav"
-        try:
-            r = run(ffmpeg_cmd(cfg, "-v", "error", "-y", "-i", rec["output"], "-ac", "1",
+        with tempfile.TemporaryDirectory(prefix="cdjprep_bpm_") as td:
+            tmp = Path(td) / "a.wav"
+            r = run(ffmpeg_cmd(cfg, "-v", "error", "-y", "-i", str(src), "-ac", "1",
                                "-ar", "44100", "-c:a", "pcm_s16le", str(tmp)))
             if r.returncode == 0:
                 bpm = aubio_on(tmp)
-        finally:
-            tmp.unlink(missing_ok=True)
     if bpm is None:
         return None, "bpm detection failed"
     note = ""
@@ -826,6 +830,14 @@ def audit_file(cfg, path, src_roots, total):
     missing = [f for f in ("artist", "title") if not final[f]]
     if missing:
         rec["warnings"].append(f"empty critical tag(s): {', '.join(missing)} (D10)")
+    if cfg["analysis"]["bpm"]:  # on the source, so {bpm} is usable in output names
+        bpm, note = detect_bpm(cfg, path)
+        if bpm:
+            rec["analysis"]["bpm"] = bpm
+            if note:
+                rec["analysis"]["bpm_note"] = note
+        else:
+            rec["warnings"].append("BPM detection failed on source")
     if cfg["duplicates"]["enabled"]:
         rec["fp"] = fingerprint(cfg, path)
     progress(total, f"{action.upper():8} {path.name}  ({reasons[0]})")
@@ -841,8 +853,8 @@ def materialize_file(cfg, rec, tmpdir, total):
     else:
         convert_file(cfg, rec)
     a = cfg["analysis"]
-    if a["bpm"]:
-        bpm, note = detect_bpm(cfg, rec, tmpdir)
+    if a["bpm"] and not rec["analysis"].get("bpm"):  # normally set during audit
+        bpm, note = detect_bpm(cfg, rec["output"])
         if bpm:
             rec["analysis"]["bpm"] = bpm
             if note:
@@ -965,7 +977,7 @@ def main():
         f"{', DRY RUN' if args.dry_run else ''}")
 
     t0 = time.time()
-    records, todo = [], []
+    records, todo, stale = [], [], {}
     for p in files:
         key = str(p.resolve())
         st = p.stat()
@@ -978,6 +990,8 @@ def main():
             rec["action"] = "skip" if rec["action"] in ("copy", "convert") else rec["action"]
             records.append(rec)
         else:
+            if m and m.get("record", {}).get("output"):
+                stale[key] = m["record"]["output"]  # reprocessed under a possibly new name
             todo.append(p)
 
     src_roots = cfg["sources"]["paths"]
@@ -1016,6 +1030,25 @@ def main():
             progress(len(work), f"ERROR    {Path(rec['source']).name}  ({e})")
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(do, work))
+
+    # Replace-cleanup (user-authorized): when a source was reprocessed and its output
+    # landed under a NEW name, remove the tool's own previous output for that source.
+    # Only paths recorded in our manifest, only inside the staging folder.
+    staging_resolved = staging.resolve()
+    for rec in new_recs:
+        if rec["action"] not in ("copy", "convert") or not rec.get("output"):
+            continue
+        old = stale.get(str(Path(rec["source"]).resolve()))
+        if not old or old == rec["output"] or not Path(rec["output"]).exists():
+            continue
+        op = Path(old)
+        try:
+            if op.exists() and op.resolve().is_relative_to(staging_resolved):
+                op.unlink()
+                if op.parent.resolve() != staging_resolved and not any(op.parent.iterdir()):
+                    op.parent.rmdir()
+        except OSError:
+            pass
 
     for rec in new_recs:
         rec.pop("_art", None)

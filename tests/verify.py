@@ -29,8 +29,8 @@ def check(name, ok, expected, actual):
     print(f"  [{mark}] {name}\n         expected: {expected}\n         actual:   {actual}")
 
 
-def run_tool(*args):
-    r = subprocess.run([str(TOOL), "--config", str(CFG), *args],
+def run_tool(*args, cfg=CFG):
+    r = subprocess.run([sys.executable, str(TOOL), "--config", str(cfg), *args],
                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stdout[-3000:])
@@ -258,6 +258,29 @@ def main():
                if p.is_file() and ".cdjprep" not in p.parts}
     check("second run: no output file rewritten", mtimes == mtimes2,
           "identical mtimes", "identical" if mtimes == mtimes2 else "CHANGED")
+
+    print("\n== step 6: bpm in filename + rename cleanup ==")
+    outs01 = Path(r01["output"]) if r01 else None
+    check("bpm prefix present in output filename",
+          outs01 is not None and re.match(r"^\d{2,3} ", outs01.name),
+          "name starts with '<bpm> '", outs01.name if outs01 else "MISSING")
+    old_outputs = {r["output"] for r in report2["records"]
+                   if r["action"] in ("copy", "convert", "skip") and r.get("output")}
+    cfg2 = HERE / "config-test2.toml"
+    cfg2.write_text((HERE / "config-test.toml").read_text().replace(
+        'filename_template = "{bpm} {track}. {artist} - {title}"',
+        'filename_template = "{artist} - {title} {bpm}"'))
+    run_tool(cfg=cfg2)
+    report3 = json.loads((STAGING / ".cdjprep" / "report.json").read_text())
+    new_outputs = {r["output"] for r in report3["records"]
+                   if r["action"] in ("copy", "convert") and r.get("output")}
+    missing_new = [o for o in new_outputs if not Path(o).exists()]
+    check("template change: new-name outputs exist", not missing_new,
+          "all present", missing_new or "all present")
+    leftovers = [o for o in old_outputs - new_outputs if Path(o).exists()]
+    check("template change: stale old-name outputs removed", not leftovers,
+          "none left", leftovers or "none left")
+    cfg2.unlink()
 
     print("\n" + "=" * 64)
     fails = [r for r in results if not r[1]]

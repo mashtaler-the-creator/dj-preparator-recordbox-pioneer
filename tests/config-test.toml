@@ -4,7 +4,7 @@ paths = ["~/cdj-prep/tests/src"]
 [staging]
 path = "~/cdj-prep/tests/staging"
 layout = "release_folders"
-filename_template = "{track}. {artist} - {title}"
+filename_template = "{bpm} {track}. {artist} - {title}"
 
 [target]
 container = "aiff"

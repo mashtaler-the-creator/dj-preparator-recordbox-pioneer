@@ -12,8 +12,9 @@ path = "~/Downloads/музыка для сетов"
 # "release_folders": one folder per source release folder (transliterated), loose files go to "Singles".
 # "flat": everything in the staging root.
 layout = "release_folders"
-# Fields: {track} {artist} {title} {album} {year}. Track renders as zero-padded "NN".
-filename_template = "{track}. {artist} - {title}"
+# Fields: {bpm} {track} {artist} {title} {album} {year}. Track renders as zero-padded "NN",
+# {bpm} as a rounded integer (empty if detection failed).
+filename_template = "{bpm} {track}. {artist} - {title}"
 
 [target]
 container = "aiff"            # D1: AIFF carries full ID3; WAV RIFF-INFO is unreliable in rekordbox
