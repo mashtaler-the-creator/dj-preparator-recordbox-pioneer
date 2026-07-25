@@ -1,0 +1,49 @@
+# cdjprep configuration. Every default traces to a decision ID in RESEARCH.md (D1..D17).
+
+[sources]
+# Folders scanned recursively. *.part files are skipped silently (D4).
+paths = [
+    "~/Downloads/breakbeat",
+    "~/Downloads/9:12",
+]
+
+[staging]
+# The tool writes ONLY inside this folder (output files + .cdjprep/ state).
+path = "~/Downloads/музыка для сетов"
+# "release_folders": one folder per source release folder (transliterated), loose files go to "Singles".
+# "flat": everything in the staging root.
+layout = "release_folders"
+# Fields: {track} {artist} {title} {album} {year}. Track renders as zero-padded "NN".
+filename_template = "{track}. {artist} - {title}"
+
+[target]
+container = "aiff"            # D1: AIFF carries full ID3; WAV RIFF-INFO is unreliable in rekordbox
+bit_depth = 16                # D1: 16 per spec; 24 is also CDJ-900-legal if you ever want it
+dither_method = "triangular_hp"  # D6: TPDF-HP; "shibata" available (noise-shaped)
+resample_filter_size = 256    # D5: swr high-quality (local ffmpeg has no soxr)
+volume_gb = 16.0              # report warns if staging exceeds this USB size (decimal GB)
+
+[analysis]
+bpm = true                    # D14: aubio + octave-error correction
+bpm_min_expected = 100.0      # detections below this are doubled (160-180 BPM library)
+bpm_max_expected = 220.0      # detections above this are halved
+key = true                    # keyfinder-cli -> TKEY (rekordbox reads TKEY)
+loudness = true               # D7: measure LUFS-I / LRA / true peak, tag + report, never alter audio
+true_peak_warn_db = -1.0      # D8
+leading_silence_warn_s = 2.0  # D9: warn only, never trim
+dc_offset_warn = 0.001        # D9: warn only, never fix
+
+[duplicates]
+enabled = true                # D15: report-only, never deletes
+fingerprint_threshold = 0.90  # chromaprint similarity for "probable duplicate"
+duration_gate_s = 7.0         # AcoustID rule: >7 s length difference = different recordings
+
+[run]
+jobs = 0                      # 0 = number of CPU cores
+
+[binaries]
+ffmpeg = "/opt/homebrew/bin/ffmpeg"
+ffprobe = "/opt/homebrew/bin/ffprobe"
+aubio = "/opt/homebrew/bin/aubio"
+fpcalc = "/opt/homebrew/bin/fpcalc"
+keyfinder = "~/cdj-prep/bin/keyfinder-cli"

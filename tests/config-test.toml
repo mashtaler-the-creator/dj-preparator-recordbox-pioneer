@@ -1,0 +1,39 @@
+[sources]
+paths = ["~/cdj-prep/tests/src"]
+
+[staging]
+path = "~/cdj-prep/tests/staging"
+layout = "release_folders"
+filename_template = "{track}. {artist} - {title}"
+
+[target]
+container = "aiff"
+bit_depth = 16
+dither_method = "triangular_hp"
+resample_filter_size = 256
+volume_gb = 16.0
+
+[analysis]
+bpm = true
+bpm_min_expected = 100.0
+bpm_max_expected = 220.0
+key = true
+loudness = true
+true_peak_warn_db = -1.0
+leading_silence_warn_s = 2.0
+dc_offset_warn = 0.001
+
+[duplicates]
+enabled = true
+fingerprint_threshold = 0.90
+duration_gate_s = 7.0
+
+[run]
+jobs = 0
+
+[binaries]
+ffmpeg = "/opt/homebrew/bin/ffmpeg"
+ffprobe = "/opt/homebrew/bin/ffprobe"
+aubio = "/opt/homebrew/bin/aubio"
+fpcalc = "/opt/homebrew/bin/fpcalc"
+keyfinder = "~/cdj-prep/bin/keyfinder-cli"

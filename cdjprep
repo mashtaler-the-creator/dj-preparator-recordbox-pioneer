@@ -1,0 +1,4 @@
+#!/bin/bash
+# console launcher: ./cdjprep [--dry-run] [--force] ...
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$DIR/.venv/bin/python" "$DIR/cdjprep.py" "$@"

@@ -1,0 +1,8 @@
+.venv/
+bin/
+__pycache__/
+*.pyc
+.DS_Store
+tests/src/
+tests/staging/
+tests/_masters/
