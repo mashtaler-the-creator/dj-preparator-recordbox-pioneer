@@ -3,8 +3,7 @@
 [sources]
 # Folders scanned recursively. *.part files are skipped silently (D4).
 paths = [
-    "~/Downloads/breakbeat",
-    "~/Downloads/9:12",
+    "/Users/vladislav.mashtaler/Downloads/breakbeat",
 ]
 
 [staging]
