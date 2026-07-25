@@ -4,6 +4,7 @@ Exit code 0 only if every check passes. Prints expected-vs-actual line by line."
 
 import array
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -285,6 +286,15 @@ def main():
     check("template change: stale old-name outputs removed", not leftovers,
           "none left", leftovers or "none left")
     cfg2.unlink()
+
+    print("\n== step 7: concurrent-run lock ==")
+    lockf = STAGING / ".cdjprep" / "lock"
+    lockf.write_text(str(os.getpid()))  # a live pid — simulates a running instance
+    r = subprocess.run([sys.executable, str(TOOL), "--config", str(CFG)],
+                       stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    check("second concurrent run is refused", r.returncode == 2 and "refusing" in r.stdout,
+          "exit 2 + refusal message", f"rc={r.returncode}")
+    lockf.unlink()
 
     print("\n" + "=" * 64)
     fails = [r for r in results if not r[1]]

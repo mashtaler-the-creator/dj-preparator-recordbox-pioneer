@@ -9,6 +9,7 @@ Source files are never modified or deleted. All writes go inside the staging fol
 """
 
 import argparse
+import atexit
 import concurrent.futures
 import hashlib
 import json
@@ -428,19 +429,23 @@ def merge_tags(tagged, from_path):
 
 
 def prepare_artwork(cfg, art, tmpdir):
-    """D13: re-encode embedded art to JPEG capped at 800x800. Returns jpeg bytes or None."""
+    """D13: re-encode embedded art to JPEG capped at 800x800. Returns jpeg bytes or None.
+    Artwork is optional — any failure here must degrade to 'no art', never fail the track."""
     if not art:
         return None
     data, _mime = art
     src = tmpdir / f"art_in_{threading.get_ident()}"
     dst = tmpdir / f"art_out_{threading.get_ident()}.jpg"
     try:
+        tmpdir.mkdir(parents=True, exist_ok=True)
         src.write_bytes(data)
         r = run(ffmpeg_cmd(cfg, "-v", "error", "-y", "-i", str(src),
                            "-vf", "scale=w='min(iw,800)':h='min(ih,800)':force_original_aspect_ratio=decrease",
                            "-frames:v", "1", "-q:v", "3", "-f", "mjpeg", str(dst)))
         if r.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
             return dst.read_bytes()
+        return None
+    except (OSError, subprocess.SubprocessError):
         return None
     finally:
         for f in (src, dst):
@@ -997,7 +1002,10 @@ def main():
         fresh = (m and not args.force and m.get("size") == st.st_size
                  and m.get("mtime_ns") == st.st_mtime_ns)
         out_ok = bool(rec and rec.get("output") and Path(rec["output"]).exists())
-        if fresh and m.get("config_sig") == sig and (rec["action"] == "reject" or out_ok):
+        retryable = bool(rec and rec["action"] == "reject"
+                         and any("processing error" in x for x in rec["reasons"]))
+        if (fresh and m.get("config_sig") == sig and not retryable
+                and (rec["action"] == "reject" or out_ok)):
             rec["action"] = "skip" if rec["action"] in ("copy", "convert") else rec["action"]
             records.append(rec)
         elif (fresh and out_ok and m.get("convert_sig") == csig
@@ -1034,6 +1042,29 @@ def main():
         return 0
 
     staging.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    # Concurrent runs on one staging folder corrupt each other's temp files — refuse.
+    lock = state_dir / "lock"
+    if lock.exists():
+        try:
+            other = int(lock.read_text().strip())
+        except (ValueError, OSError):
+            other = None
+        alive = False
+        if other:
+            try:
+                os.kill(other, 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True
+        if alive:
+            log(f"another cdjprep run (pid {other}) is already working on this staging "
+                f"folder — refusing to start a second one")
+            return 2
+    lock.write_text(str(os.getpid()))
+    atexit.register(lambda: lock.unlink(missing_ok=True))
     renamed = 0
     for rec in records:
         old = rec.pop("_old_output", None)
@@ -1094,6 +1125,9 @@ def main():
         rec.pop("_old_output", None)
         p = Path(rec["source"])
         if not p.exists():
+            continue
+        if rec["action"] == "reject" and any("processing error" in x for x in rec["reasons"]):
+            manifest.pop(str(p.resolve()), None)  # transient failure — retry next run
             continue
         st = p.stat()
         manifest[str(p.resolve())] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns,
