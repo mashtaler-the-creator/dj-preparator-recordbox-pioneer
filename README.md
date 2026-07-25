@@ -153,10 +153,12 @@ Pioneer-базу не пишет, флешку не трогает — это д
 ## Install / Установка (Apple Silicon)
 
 ```bash
-git clone <repo-url> ~/cdj-prep && cd ~/cdj-prep && ./install.sh
+git clone https://github.com/mashtaler-the-creator/dj-preparator-recordbox-pioneer.git ~/cdj-prep \
+  && cd ~/cdj-prep && ./install.sh
 ```
 
-Requires only [Homebrew](https://brew.sh). / Нужен только [Homebrew](https://brew.sh).
+Requires only [Homebrew](https://brew.sh) (Xcode Command Line Tools come with it). /
+Нужен только [Homebrew](https://brew.sh) (Xcode Command Line Tools ставятся вместе с ним).
 
 ## Run / Запуск
 
@@ -168,6 +170,8 @@ nohup .venv/bin/python cdjprep_app.py >/dev/null 2>&1 &
 ./cdjprep --dry-run   # plan only / только план
 ./cdjprep             # process / обработка
 ```
+
+Report / отчёт: `<output folder>/.cdjprep/report.json` (also via the 🎧 menu / доступен из меню 🎧).
 
 ## After processing — rekordbox / После обработки — rekordbox
 
